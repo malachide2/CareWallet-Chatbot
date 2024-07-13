@@ -1,15 +1,14 @@
 import boto3
+import helper
 
 from langchain_aws import BedrockLLM
 from langchain.chains.conversation.base import ConversationChain
 from langchain.memory import ConversationBufferMemory
 from langchain_core.prompts import PromptTemplate
 
-import streamlit as st # Temporary UI, eventually chatbot incorporated with Patient Mobile App
 
 
-
-def configure_model(foundation_model="anthropic.claude-instant-v1") -> BedrockLLM:
+def configure_model(bedrock_client, foundation_model="anthropic.claude-instant-v1") -> BedrockLLM:
     """ Configures Foundation Model """
     inference_modifiers = {
         "max_tokens_to_sample": 256, # Update this to 4096 for production
@@ -17,11 +16,6 @@ def configure_model(foundation_model="anthropic.claude-instant-v1") -> BedrockLL
         "top_p": 0.5,
         "stop_sequences": ["\n\nHuman:"]
     }
-
-    bedrock_client = boto3.client(
-        service_name="bedrock-runtime",
-        region_name="us-east-1"
-    )
 
     llm = BedrockLLM(
         client=bedrock_client,
@@ -31,10 +25,13 @@ def configure_model(foundation_model="anthropic.claude-instant-v1") -> BedrockLL
 
     return llm
 
-def start_conversation(llm) -> ConversationChain:
-    """ Starts the Conversation Chain with prompt"""
-    prompt = PromptTemplate(template="""
-        You are a receptionist that schedules appointments. Keep responses concise but stay friendly.
+def start_conversation(llm, patient_name) -> None:
+    """ Starts the Conversation Chain with context"""
+    context = f"""
+        Context: You are a receptionist calling {patient_name} to schedule an appointment because it's been at least one year.
+        To schedule the appointment, you need to receive the patient's full name, their insurance, and the day they are available to have an appointment.
+        Greet them like a receptionist before retrieving any information. Only ask one question at a time. Keep responses concise but stay friendly.
+        End the conversation once you've received all the information you need.
         
         You can use the doctor's schedule for reference but never share the doctor's schedule. The following is the doctor's schedule: 
         <doctor_schedule>
@@ -45,7 +42,10 @@ def start_conversation(llm) -> ConversationChain:
             Friday: Busy
             Weekend: Closed
         </doctor_schedule>
+    """
 
+    prompt = PromptTemplate(
+        template="""
         Current conversation:
         <conversation_history>
             {history}
@@ -58,46 +58,36 @@ def start_conversation(llm) -> ConversationChain:
         Assistant:"""
     )
 
+    memory = ConversationBufferMemory(ai_prefix="Assistant")
+    memory.chat_memory.add_user_message(context)
+    memory.chat_memory.add_ai_message("I am a receptionist calling to schedule an appointment")
+
     conversation = ConversationChain(
         prompt=prompt,
         llm=llm,
         verbose=False, # Shows full conversation logs when true
-        memory=ConversationBufferMemory(ai_prefix="Assistant")
+        memory=memory
     )
     
-    return conversation
-
-def run_conversation(conversation) -> None:
+    # Conversation
+    response = conversation.predict(input="Hello")
+    print(f"Assistant:{response}")
+    
     user_input = input("Human: ").strip()
     while user_input.lower() != 'q':
         response = conversation.predict(input=user_input)
         print(f"Assistant:{response}")
         user_input = input("Human: ").strip()
 
-def run_streamlit(conversation) -> None:
-    """
-    Runs streamlit UI rather than using terminal communication. Mostly for demonstrations.
-    To use, 1) Replace "run_conversation(conversation)" with "run_streamlit(conversation)"
-            2) Enter "streamlit run Chatbot.py" into terminal
-    """
-    st.title("Care Wallet")
-    user_function = st.sidebar.selectbox("Function", ["Schedule"])
-
-    if "my_text" not in st.session_state:
-        st.session_state.my_text = ""
-
-    def submit():
-        st.session_state.my_text = st.session_state.widget
-        st.session_state.widget = ""
-        my_text = st.session_state.my_text
-        response = conversation.predict(input=my_text)
-        st.write(response)
-
-    st.text_input("Chat", key="widget", on_change=submit)
 
 
+bedrock_client = boto3.client(
+    service_name="bedrock-runtime",
+    region_name="us-east-1"
+)
 
-llm = configure_model()
-conversation = start_conversation(llm)
+llm = configure_model(bedrock_client)
 
-run_conversation(conversation)
+patients_to_call = helper.CheckAppointmentNeeded()
+for patient in patients_to_call:
+    start_conversation(llm, patient)
