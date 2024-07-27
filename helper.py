@@ -1,29 +1,42 @@
 import json
+import random
 from datetime import datetime
 
-def ResetJSON() -> None:
-    patient_schedules = {
-        "Abby": "2024-06-01",
-        "Bob": "2022-06-05",
-        "Carl": "2022-06-03"
-    }
+def CreateJSON() -> None:
+    """ Creates a JSON file filled with random patient data """
+    patient_data = {}
+    patient_names = ["Laura Diaz", "Rose Jackson", "Julia Robinson", "Patrick Gray"]
+    insurance_providers = ["United Healthcare", "Blue Cross Blue Shield", "Aetna", "Kaiser Permanente"]
+
+    for patient_name in patient_names:
+        patient = {}
+        patient["name"] = patient_name
+        patient["age"] = random.randrange(18, 91)
+        patient["phone"] = f"{random.randrange(100, 1000)}-{random.randrange(0, 1000):03}-{random.randrange(0, 10000):04}"
+        patient["insurance"] = random.choice(insurance_providers)
+        patient["last_appointment"] = f"{random.randrange(2020, 2024)}-{random.randrange(1, 12):02}-{random.randrange(1, 30):02}"
+        patient["next_appointment"] = "None"
+
+        patient_data[patient_name] = patient
 
     with open('data.json', 'w') as data_file:
-        json.dump(patient_schedules, data_file)
+        json.dump(patient_data, data_file)
 
 def CheckAppointmentNeeded() -> list[str]:
     """ Returns a list of patient names that need a routine checkup """
     output = []
 
     with open('data.json', 'r') as data_file:
-        patient_schedules = json.load(data_file)
+        patient_data = json.load(data_file)
 
-    for patient, last_appointment in patient_schedules.items():
-        this_year = int(datetime.today().strftime('%Y-%m-%d').split('-')[0])
-        year_of_last_appointment = int(last_appointment.split('-')[0])
-        if this_year - year_of_last_appointment > 0:
-            output.append(patient)
+    todays_date = datetime.today().strftime('%Y-%m-%d').split('-')
+    for patient in patient_data.values():
+        if (int(todays_date[0]) - int(patient["last_appointment"].split('-')[0]) > 0 and
+            int(todays_date[1]) >= int(patient["last_appointment"].split('-')[1])):
+            output.append(patient["name"])
 
     return output
 
-ResetJSON()
+
+
+CreateJSON()
