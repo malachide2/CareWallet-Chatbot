@@ -21,8 +21,9 @@ def create_doctors_schedule() -> dict:
             else: time = f"{hour % 12}pm"
 
             if hour < 9 or hour > 16: schedule[time] = "Closed"
-            elif hour < 12: schedule[time] = "Booked"
-            else: schedule[time] = "Open"
+            else:
+                choices = ["Booked", "Open"]
+                schedule[time] = random.choice(choices)
         
         todays_date = datetime.today().strftime('%Y-%m-%d')
         date = (datetime.strptime(todays_date, '%Y-%m-%d') + timedelta(days=i)).strftime('%Y-%m-%d')
