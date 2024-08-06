@@ -1,15 +1,51 @@
 import json
 import random
 from datetime import datetime, timedelta
+
+from langchain_core.vectorstores import VectorStoreRetriever
 from langchain_chroma import Chroma
 from langchain_community.embeddings import BedrockEmbeddings
 from langchain_text_splitters import RecursiveJsonSplitter
+from langchain_aws import ChatBedrockConverse
 
 
 
-def create_doctors_schedule() -> dict:
-    """ Returns a dictionary filled with the doctors schedule """
-    doctors_schedule = {}
+def setup_llm(foundation_model="anthropic.claude-3-sonnet-20240229-v1:0") -> ChatBedrockConverse:
+    """ Configures Foundation Model """  
+    inference_modifiers = {
+        # "max_tokens_to_sample": 256, # Update this to 4096 for production
+        "temperature": 0.1,
+        "top_p": 0.5,
+        "stop_sequences": ["\n\nHuman:"]
+    }
+
+    llm = ChatBedrockConverse(
+        model=foundation_model,
+        temperature=0.1,
+        max_tokens=1024
+    )
+
+    return llm
+
+def generate_embeddings(bedrock_client) -> VectorStoreRetriever:
+    """ Converts JSON data into queryable vectorstore for RAG """
+    with open('data.json', 'r') as data_file:
+        data = json.load(data_file)
+
+    splitter = RecursiveJsonSplitter(max_chunk_size=500)
+    docs = splitter.create_documents(texts=[data])
+
+    vectorstore = Chroma.from_documents(
+        documents=docs,
+        embedding=BedrockEmbeddings(client=bedrock_client)
+    )
+    retriever = vectorstore.as_retriever()
+
+    return retriever
+
+def create_doctor_schedule() -> dict:
+    """ Returns a dictionary filled with a random doctor schedule """
+    doctor_schedule = {}
 
     for i in range(5):
         schedule = {}
@@ -25,11 +61,10 @@ def create_doctors_schedule() -> dict:
                 choices = ["Booked", "Open"]
                 schedule[time] = random.choice(choices)
         
-        todays_date = datetime.today().strftime('%Y-%m-%d')
-        date = (datetime.strptime(todays_date, '%Y-%m-%d') + timedelta(days=i)).strftime('%Y-%m-%d')
-        doctors_schedule[date] = schedule
+        date = (datetime.today() + timedelta(days=i)).strftime('%Y-%m-%d')
+        doctor_schedule[date] = schedule
 
-    return doctors_schedule
+    return doctor_schedule
 
 def create_patient_data() -> dict:
     """ Returns a dictionary filled with random patient information """
@@ -53,7 +88,7 @@ def create_patient_data() -> dict:
 def create_JSON() -> None:
     """ Creates a JSON file filled with key documents """
     data = {}
-    data["doctors_schedule"] = create_doctors_schedule()
+    data["doctor_schedule"] = create_doctor_schedule()
     data["patient_data"] = create_patient_data()
 
     with open('data.json', 'w') as data_file:
@@ -61,12 +96,11 @@ def create_JSON() -> None:
 
 def check_appointment_needed() -> list[str]:
     """ Returns a list of patient names that need a routine checkup """
-    output = []
-
     with open('data.json', 'r') as data_file:
         data = json.load(data_file)
         patient_data = data["patient_data"]
 
+    output = []
     todays_date = datetime.today().strftime('%Y-%m-%d').split('-')
     for patient, patient_record in patient_data.items():
         if (int(todays_date[0]) - int(patient_record["last_appointment"].split('-')[0]) > 0 and
@@ -74,21 +108,6 @@ def check_appointment_needed() -> list[str]:
             output.append(patient)
 
     return output
-
-def generate_embeddings(bedrock_client) -> Chroma:
-    """ Converts JSON data into queryable vectorstore for RAG """
-    with open('data.json', 'r') as data_file:
-        data = json.load(data_file)
-
-    splitter = RecursiveJsonSplitter(max_chunk_size=500)
-    docs = splitter.create_documents(texts=[data])
-
-    vectorstore = Chroma.from_documents(
-        documents=docs,
-        embedding=BedrockEmbeddings(client=bedrock_client)
-    )
-
-    return vectorstore
 
 def format_docs(docs) -> str:
     return "\n\n".join(doc.page_content for doc in docs)
