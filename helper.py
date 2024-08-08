@@ -12,17 +12,10 @@ from langchain_aws import ChatBedrockConverse
 
 def setup_llm(foundation_model="anthropic.claude-3-sonnet-20240229-v1:0") -> ChatBedrockConverse:
     """ Configures Foundation Model """  
-    inference_modifiers = {
-        # "max_tokens_to_sample": 256, # Update this to 4096 for production
-        "temperature": 0.1,
-        "top_p": 0.5,
-        "stop_sequences": ["\n\nHuman:"]
-    }
-
     llm = ChatBedrockConverse(
         model=foundation_model,
         temperature=0.1,
-        max_tokens=1024
+        max_tokens=2048
     )
 
     return llm
@@ -101,10 +94,10 @@ def check_appointment_needed() -> list[str]:
         patient_data = data["patient_data"]
 
     output = []
-    todays_date = datetime.today().strftime('%Y-%m-%d').split('-')
     for patient, patient_record in patient_data.items():
-        if (int(todays_date[0]) - int(patient_record["last_appointment"].split('-')[0]) > 0 and
-            int(todays_date[1]) >= int(patient_record["last_appointment"].split('-')[1])):
+        if (int(datetime.today().year) - int(patient_record["last_appointment"].split('-')[0]) > 1 or # If over a year
+            int(datetime.today().year) > int(patient_record["last_appointment"].split('-')[0]) and # If within the last year
+            int(datetime.today().month) >= int(patient_record["last_appointment"].split('-')[1])):
             output.append(patient)
 
     return output
