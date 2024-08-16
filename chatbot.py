@@ -171,8 +171,5 @@ for patient in patients_to_call:
     print("\n\n")
 
 # TO-DO
-# Allow days of the week to be scheduled rather than dates
 # Bug: RAG not retrieving correct date
-# Bug: 
 # Implement UnitTests
-# # Docker
