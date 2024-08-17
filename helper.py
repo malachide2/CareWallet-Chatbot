@@ -87,9 +87,9 @@ def create_JSON() -> None:
     with open('data.json', 'w') as data_file:
         json.dump(data, data_file)
 
-def check_appointment_needed() -> list[str]:
+def check_appointment_needed(file='data.json') -> list[str]:
     """ Returns a list of patient names that need a routine checkup """
-    with open('data.json', 'r') as data_file:
+    with open(file, 'r') as data_file:
         data = json.load(data_file)
         patient_data = data["patient_data"]
 
@@ -104,8 +104,3 @@ def check_appointment_needed() -> list[str]:
 
 def format_docs(docs) -> str:
     return "\n\n".join(doc.page_content for doc in docs)
-
-
-
-if __name__ == "__main__":
-    create_JSON()

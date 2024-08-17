@@ -1,4 +1,5 @@
 import helper
+import login
 
 import boto3
 import json
@@ -13,42 +14,6 @@ from langchain.tools import tool
 from langgraph.graph import StateGraph, add_messages, START, END
 from langgraph.prebuilt import ToolNode, tools_condition
 from langgraph.checkpoint.sqlite import SqliteSaver
-
-
-
-@tool
-def retrieve_patient_information(name: str) -> str:
-    """Retrieves the patient information.
-
-    Args:
-        name: The patient's name to be retrieved
-    """
-    docs = retriever.invoke(name)
-    return helper.format_docs(docs)
-
-@tool
-def find_schedule(date: str) -> str:
-    """Finds the doctor's schedule on a specific date. Use this when asked if an appointment can be scheduled on a particular date.
-
-    Args:
-        date: Date to retrieve in YYYY-MM-DD format
-    """
-    docs = retriever.invoke(date)
-    return helper.format_docs(docs)
-
-@tool
-def schedule_appointment(date: str, time: str) -> None:
-    """Schedules an appointment given a specific date and time.
-
-    Args:
-        date: Date of appointment in YYYY-MM-DD format
-        time: Time of appointment in format similar to 1pm or 12am
-    """
-    with open('data.json', 'r') as data_file:
-        data = json.load(data_file)
-    data["doctor_schedule"][date][time] = "Booked"
-    with open('data.json', 'w') as data_file:
-        json.dump(data, data_file)
 
 
 
@@ -87,7 +52,7 @@ class Conversation:
     def __init__(self, patient):
         self.patient = patient
 
-    def start_conversation(self):
+    def start_conversation(self, todays_date=datetime.today().strftime('%Y-%m-%d'), isTest=False):
         prompt = ChatPromptTemplate.from_messages([
             ("system", """
                 You are a receptionist calling a patient to schedule an appointment because it's been at least one year.
@@ -112,23 +77,25 @@ class Conversation:
             ),
             ("placeholder", "{messages}"),
         ]).partial(
-            date=datetime.today().strftime('%Y-%m-%d'),
-            day_of_the_week=calendar.day_name[datetime.today().weekday()],
-            end_date=(datetime.today() + timedelta(days=5)).strftime('%Y-%m-%d'),
+            date=todays_date,
+            day_of_the_week=calendar.day_name[datetime.strptime(todays_date, '%Y-%m-%d').weekday()],
+            end_date=(datetime.strptime(todays_date, '%Y-%m-%d') + timedelta(days=5)).strftime('%Y-%m-%d'),
             patient_name=self.patient
         )
 
         llm = helper.setup_llm()
-        tools = [find_schedule, schedule_appointment, retrieve_patient_information]
+
+        tools = [self.retrieve_patient_information, self.find_schedule]
+        if not isTest: tools.append(self.schedule_appointment)
         chatbot_runnable = prompt | llm.bind_tools(tools)
         graph = self.setup_graph(chatbot_runnable, tools)
 
         response, user_input = "", ""
-        while True:
-            if "bye" in response.lower() or user_input.lower() in ["q", "bye"]:
-                break
+        while "bye" not in response.lower() and user_input.lower() not in ["q", "bye"]:
+            user_input = input(f"{self.patient}: ")
+            while user_input == "":
+                user_input = input(f"{self.patient}: ")
 
-            user_input = input("Human: ")
             events = graph.stream(
                 {"messages": ("user", user_input)},
                 {"configurable": {"thread_id": "1"}},
@@ -138,7 +105,43 @@ class Conversation:
                 message = event["messages"][-1]
                 if type(message) == AIMessage and type(message.content) == str:
                     response = message.content
-                    print("Assistant: " + response)
+                    print("Receptionist: " + response)
+
+    @tool
+    def retrieve_patient_information(name: str) -> str:
+        """Retrieves the patient information.
+
+        Args:
+            name: The patient's name to be retrieved
+        """
+        docs = retriever.invoke(name)
+        return helper.format_docs(docs)
+
+    @tool
+    def find_schedule(date: str) -> str:
+        """Finds the doctor's schedule on a specific date. Use this when asked if an appointment can be scheduled on a particular date.
+
+        Args:
+            date: Date to retrieve in YYYY-MM-DD format
+        """
+        docs = retriever.invoke(date)
+        return helper.format_docs(docs)
+
+    @tool
+    def schedule_appointment(date: str, time: str, name: str) -> None:
+        """Schedules an appointment given a specific date and time.
+
+        Args:
+            date: Date of appointment in YYYY-MM-DD format
+            time: Time of appointment in format similar to 1pm or 12am
+            name: Name of patient in First Last format
+        """
+        with open('data.json', 'r') as data_file:
+            data = json.load(data_file)
+        data["doctor_schedule"][date][time] = "Booked"
+        data["patient_data"][name]["next_appointment"] = date
+        with open('data.json', 'w') as data_file:
+            json.dump(data, data_file)
 
     def setup_graph(self, chatbot_runnable, tools):
         graph = StateGraph(State)
@@ -158,9 +161,12 @@ class Conversation:
 
 bedrock_client = boto3.client(
     service_name="bedrock-runtime",
-    region_name="us-east-1"
+    region_name="us-east-1",
+    aws_access_key_id=login.ACCESS_KEY,
+    aws_secret_access_key=login.SECRET_KEY
 )
 
+helper.create_JSON()
 retriever = helper.generate_embeddings(bedrock_client)
 
 patients_to_call = helper.check_appointment_needed()
