@@ -1,5 +1,5 @@
-import helper
-
+import sys
+import os
 import boto3
 import json
 from datetime import datetime, timedelta
@@ -13,6 +13,9 @@ from langchain.tools import tool
 from langgraph.graph import StateGraph, add_messages, START, END
 from langgraph.prebuilt import ToolNode, tools_condition
 from langgraph.checkpoint.sqlite import SqliteSaver
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from src import helper
 
 
 
@@ -50,6 +53,7 @@ class Chatbot:
 class Conversation:
     def __init__(self, patient):
         self.patient = patient
+        self.graph = None
 
     def start_conversation(self, todays_date=datetime.today().strftime('%Y-%m-%d'), isTest=False):
         prompt = ChatPromptTemplate.from_messages([
@@ -58,7 +62,7 @@ class Conversation:
 
                 To schedule the appointment, you must complete these steps in this order:
                 1) Confirm the patient's full name matches the name listed. Do not reveal any patient information until their name is confirmed.
-                2) Confirm their insurance matches the name listed or update it if necessary
+                2) Confirm their insurance matches the name listed or update it if necessary.
                 3) Find a date and time using the doctor's schedule where the patient and doctor are both available to have an appointment.
                 
                 End the conversation once you've received all the information you need and explicitly say "bye".
@@ -87,28 +91,32 @@ class Conversation:
         tools = [self.retrieve_patient_information, self.find_schedule]
         if not isTest: tools.append(self.schedule_appointment)
         chatbot_runnable = prompt | llm.bind_tools(tools)
-        graph = self.setup_graph(chatbot_runnable, tools)
+        self.setup_graph(chatbot_runnable, tools)
 
+    def run_conversation(self):
         response, user_input = "", ""
         while "bye" not in response.lower() and user_input.lower() not in ["q", "bye"]:
             user_input = input(f"{self.patient}: ")
             while user_input == "":
                 user_input = input(f"{self.patient}: ")
 
-            events = graph.stream(
-                {"messages": ("user", user_input)},
-                {"configurable": {"thread_id": "1"}},
-                stream_mode="values"
-            )
-            for event in events:
-                message = event["messages"][-1]
-                if type(message) == AIMessage and type(message.content) == str:
-                    response = message.content
-                    print("Receptionist: " + response)
+            response = self.generate_response(user_input)
+            print("Receptionist: " + response)
+
+    def generate_response(self, user_input):
+        events = self.graph.stream(
+            {"messages": ("user", user_input)},
+            {"configurable": {"thread_id": "1"}},
+            stream_mode="values"
+        )
+        for event in events:
+            message = event["messages"][-1]
+            if type(message) == AIMessage and type(message.content) == str:
+                return message.content
 
     @tool
     def retrieve_patient_information(name: str) -> str:
-        """Retrieves the patient information.
+        """Retrieves the patient information/records.
 
         Args:
             name: The patient's name to be retrieved
@@ -135,11 +143,11 @@ class Conversation:
             time: Time of appointment in format similar to 1pm or 12am
             name: Name of patient in First Last format
         """
-        with open('data.json', 'r') as data_file:
+        with open('src/data.json', 'r') as data_file:
             data = json.load(data_file)
         data["doctor_schedule"][date][time] = "Booked"
         data["patient_data"][name]["next_appointment"] = date
-        with open('data.json', 'w') as data_file:
+        with open('src/data.json', 'w') as data_file:
             json.dump(data, data_file)
 
     def setup_graph(self, chatbot_runnable, tools):
@@ -153,8 +161,7 @@ class Conversation:
         graph.add_conditional_edges("chatbot", tools_condition)
         graph.add_edge("tools", "chatbot")
         
-        compiled_graph = graph.compile(checkpointer=memory)
-        return compiled_graph
+        self.graph = graph.compile(checkpointer=memory)
 
 
 
@@ -163,16 +170,17 @@ bedrock_client = boto3.client(
     region_name="us-east-1"
 )
 
-helper.create_JSON()
-retriever = helper.generate_embeddings(bedrock_client)
+if __name__ == '__main__':
+    helper.create_JSON()
+    retriever = helper.generate_embeddings(bedrock_client)
 
-patients_to_call = helper.check_appointment_needed()
-for patient in patients_to_call:
-    conversation = Conversation(patient)
-    conversation.start_conversation()
+    patients_to_call = helper.check_appointment_needed()
+    for patient in patients_to_call:
+        conversation = Conversation(patient)
+        conversation.start_conversation()
+        conversation.run_conversation()
 
-    print("\n\n")
+        print("\n\n")
 
-# TO-DO
-# Bug: RAG not retrieving correct date
-# Implement UnitTests
+else:
+    retriever = helper.generate_embeddings(bedrock_client, 'test/test.json')

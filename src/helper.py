@@ -20,17 +20,17 @@ def setup_llm(foundation_model="anthropic.claude-3-sonnet-20240229-v1:0") -> Cha
 
     return llm
 
-def generate_embeddings(bedrock_client) -> VectorStoreRetriever:
+def generate_embeddings(bedrock_client, file='src/data.json') -> VectorStoreRetriever:
     """ Converts JSON data into queryable vectorstore for RAG """
-    with open('data.json', 'r') as data_file:
+    with open(file, 'r') as data_file:
         data = json.load(data_file)
 
-    splitter = RecursiveJsonSplitter(max_chunk_size=500)
+    splitter = RecursiveJsonSplitter(max_chunk_size=512)
     docs = splitter.create_documents(texts=[data])
 
     vectorstore = Chroma.from_documents(
         documents=docs,
-        embedding=BedrockEmbeddings(client=bedrock_client)
+        embedding=BedrockEmbeddings(client=bedrock_client, model_id="amazon.titan-embed-text-v2:0")
     )
     retriever = vectorstore.as_retriever()
 
@@ -84,10 +84,10 @@ def create_JSON() -> None:
     data["doctor_schedule"] = create_doctor_schedule()
     data["patient_data"] = create_patient_data()
 
-    with open('data.json', 'w') as data_file:
+    with open('src/data.json', 'w') as data_file:
         json.dump(data, data_file)
 
-def check_appointment_needed(file='data.json') -> list[str]:
+def check_appointment_needed(file='src/data.json') -> list[str]:
     """ Returns a list of patient names that need a routine checkup """
     with open(file, 'r') as data_file:
         data = json.load(data_file)
