@@ -1,5 +1,4 @@
 import helper
-import login
 
 import boto3
 import json
@@ -161,9 +160,7 @@ class Conversation:
 
 bedrock_client = boto3.client(
     service_name="bedrock-runtime",
-    region_name="us-east-1",
-    aws_access_key_id=login.ACCESS_KEY,
-    aws_secret_access_key=login.SECRET_KEY
+    region_name="us-east-1"
 )
 
 helper.create_JSON()
